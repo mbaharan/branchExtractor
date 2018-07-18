@@ -36,9 +36,9 @@ END_LEGAL */
     This code extracts the number of instruction executed by processors and log
     the branches. It prodeces the log file name `branches.out` consisting following
     information:
-    BRANCH_IP `S` BRANCH_TARGET `K`
+    BRANCH_TARGET `S` `K` BRANCH_ADDR # BASE ?????? 
     where `S` can be `T`(Taken) or `N`(Not taken) and `K` can be `C`(Conditional) or
-    `U`(Unconditional)
+    `U`(Unconditional), and 
     
 */
 
@@ -63,6 +63,7 @@ static BOOL justFoundDlDebugState = FALSE;
 
 
 ofstream OutFile;
+std::ostream buffer(nullptr); // This one will save branches.
 
 // The running count of instructions is kept here
 // make it static to help the compiler optimize docount
@@ -122,13 +123,14 @@ disassemble(UINT64 start, UINT64 stop) {
         xed_error = xed_decode(&xedd, reinterpret_cast<const UINT8*>(pc), len);
         bool okay = (xed_error == XED_ERROR_NONE);
         iostream::fmtflags fmt = os.flags();
-        os << std::setfill('0')
-           << "XDIS "
-           << std::hex
+        /*os << std::setfill('0')
+           << "XDIS "*/
+        os << std::hex
            << std::setw(sizeof(ADDRINT)*2)
+           << "0x"
            << pc
            << std::dec
-           << ": "
+           << " #"
            << std::setfill(' ')
            << std::setw(4);
 
@@ -192,40 +194,35 @@ VOID ImageLoad(IMG img, VOID *v)
     }
 }
 
-static VOID AtBranch(ADDRINT ip, ADDRINT target, BOOL taken)
+static VOID AtConBranch(ADDRINT ip, ADDRINT target, BOOL taken)
 {
 
         string s = disassemble ((ip),(ip)+15);
 
-        printf ("  branch %s   branches to range of interest %p  taken %d\n", s.c_str(), reinterpret_cast<void *>(target), taken);
-        fflush (stdout);
-        string s = disassemble ((ip),(ip)+15);
-        printf ("  instruction in range of interest executed %s\n", s.c_str());
-        fflush (stdout);
-
+        buffer <<  reinterpret_cast<void *>(target) << (taken?"\tT":"\tN") << "\tC\t" << s;
+    
 }
 
-/*
-static VOID AtNonBranch(ADDRINT ip)
+static VOID AtUnconConBranch(ADDRINT ip, ADDRINT target, BOOL taken)
 {
 
-    if (ip >= dl_debug_state_Addr && ip < dl_debug_state_AddrEnd)
-    {
         string s = disassemble ((ip),(ip)+15);
-        printf ("  instruction in range of interest executed %s\n", s.c_str());
-        fflush (stdout);
-    }
+
+        buffer <<  reinterpret_cast<void *>(target) << "\tT" << "\tU\t" << s;
+    
 }
-*/
 
 static VOID Instruction(INS ins, VOID *v)
 {
     // Insert a call to docount before every instruction, no arguments are passed
     INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)docount, IARG_END);
-    //disAssemblyMap[INS_Address(ins)] = INS_Disassemble(ins);
-    if (INS_IsBranchOrCall(ins))
-        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtBranch, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
     
+    if (INS_IsBranchOrCall(ins)){
+        if (INS_HasFallThrough(ins) == false) // It is unconditional branch
+            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconConBranch, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+        else
+            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtConBranch, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+    }
     // We do not care about instrunctions that are not branches.
     //else
     //    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtNonBranch, IARG_INST_PTR, IARG_END);
@@ -234,8 +231,7 @@ static VOID Instruction(INS ins, VOID *v)
 VOID Fini(INT32 code, VOID *v)
 {
     // Write to a file since cout and cerr maybe closed by the application
-    OutFile.setf(ios::showbase);
-    OutFile << "Instruction count=" << icount << endl;
+    OutFile << "!!! Instruction count = " << icount << endl << "------------------------------------" << endl << buffer;
     OutFile.close();
 }
 
@@ -250,12 +246,19 @@ INT32 Usage()
     return -1;
 }
 
+INT32 InitFile()
+{
+    OutFile.open(KnobOutputFile.Value().c_str());
+    OutFile.setf(ios::showbase);
+    return 0;
+}
+
 int main(INT32 argc, CHAR **argv)
 {
     PIN_Init(argc, argv);
     PIN_InitSymbols();
 
-    OutFile.open(KnobOutputFile.Value().c_str());
+    InitFile();
 
     INS_AddInstrumentFunction(Instruction, 0);
     IMG_AddInstrumentFunction(ImageLoad, 0);

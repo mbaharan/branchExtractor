@@ -54,6 +54,8 @@ END_LEGAL */
 #include "pin.H"
 #include "instlib.H"
 
+#define axuliryFileName "data.tmp~"
+
 std::map<ADDRINT, std::string> disAssemblyMap;
 
 
@@ -61,15 +63,13 @@ static ADDRINT dl_debug_state_Addr = 0;
 static ADDRINT dl_debug_state_AddrEnd = 0;
 static BOOL justFoundDlDebugState = FALSE;
 
-
 ofstream OutFile;
-std::ostream buffer(nullptr); // This one will save branches.
-
+std::ofstream axuFile(axuliryFileName);
 // The running count of instructions is kept here
 // make it static to help the compiler optimize docount
 static UINT64 icount = 0;
-
-
+static UINT64 cbcount = 0;
+static UINT64 ubcount = 0;
 
 // This function is called before every instruction is executed
 VOID docount() { icount++; }
@@ -199,8 +199,9 @@ static VOID AtConBranch(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
 
-        buffer <<  reinterpret_cast<void *>(target) << (taken?"\tT":"\tN") << "\tC\t" << s;
-    
+        axuFile <<  reinterpret_cast<void *>(target) << (taken?"\tT":"\tN") << "\tC\t" << s;
+
+        cbcount++;
 }
 
 static VOID AtUnconConBranch(ADDRINT ip, ADDRINT target, BOOL taken)
@@ -208,7 +209,9 @@ static VOID AtUnconConBranch(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
 
-        buffer <<  reinterpret_cast<void *>(target) << "\tT" << "\tU\t" << s;
+        axuFile <<  reinterpret_cast<void *>(target) << "\tT" << "\tU\t" << s;
+
+        ubcount++;
     
 }
 
@@ -231,7 +234,16 @@ static VOID Instruction(INS ins, VOID *v)
 VOID Fini(INT32 code, VOID *v)
 {
     // Write to a file since cout and cerr maybe closed by the application
-    OutFile << "!!! Instruction count = " << icount << endl << "------------------------------------" << endl << buffer;
+    axuFile.close();
+    std::ifstream readTmpFile(axuliryFileName);
+    cout << "Logging data..." << endl;
+    OutFile << "!!! Number of Instructions = " << icount << endl; 
+    OutFile << "!!! Number of Unconditional branches = " << ubcount << endl;
+    OutFile << "!!! Number of Conditional branches = " << cbcount << endl;
+    OutFile << "------------------------------------" << endl;
+    OutFile << readTmpFile.rdbuf();
+    readTmpFile.close();
+    std::remove(axuliryFileName);
     OutFile.close();
 }
 
@@ -250,6 +262,7 @@ INT32 InitFile()
 {
     OutFile.open(KnobOutputFile.Value().c_str());
     OutFile.setf(ios::showbase);
+    axuFile.setf(ios::showbase);
     return 0;
 }
 

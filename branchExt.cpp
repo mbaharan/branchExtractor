@@ -33,13 +33,14 @@ END_LEGAL */
     Following code has been modified by "Mohammadreza Baharani"
     UNC, Charlotte, NC, 28223 USA
 
-    This code extracts the number of instruction executed by processors and log
-    the branches. It prodeces the log file name `branches.out` consisting following
-    information:
-    BRANCH_TARGET `S` `K` BRANCH_ADDR # BASE ?????? 
-    where `S` can be `T`(Taken) or `N`(Not taken) and `K` can be `C`(Conditional) or
-    `U`(Unconditional), and 
-    
+    This code extracts the number of instruction executed by the processors and logs
+    the branches. It produces two log files name `generalInfo.out` consisting
+    information about the total number of instuctions and `branches.out`(default)
+    consisting following information:
+    BRANCH_TARGET `S` `K` `C` BRANCH_ADDR # BASE ?????? 
+    where `S` can be `1`(Taken) or `0`(Not taken) and `K` can be `1`(Conditional) or
+    `0`(Unconditional), and `C` can be `1`(Call ints.) or `0`(Not call instruction)
+    and ?????? is the disassembled instruction and its opcode.
 */
 
 
@@ -54,7 +55,7 @@ END_LEGAL */
 #include "pin.H"
 #include "instlib.H"
 
-#define axuliryFileName "data.tmp~"
+#define axuliryFileName "generalInfo.out"
 
 std::map<ADDRINT, std::string> disAssemblyMap;
 
@@ -199,21 +200,33 @@ static VOID AtConBranch(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
 
-        axuFile <<  reinterpret_cast<void *>(target) << (taken?"\tT":"\tN") << "\tC\t" << s;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0\t" << s;
 
         cbcount++;
 }
 
-static VOID AtUnconConBranch(ADDRINT ip, ADDRINT target, BOOL taken)
+static VOID AtUnconConBranchExceptCall(ADDRINT ip, ADDRINT target, BOOL taken)
 {
 
         string s = disassemble ((ip),(ip)+15);
 
-        axuFile <<  reinterpret_cast<void *>(target) << "\tT" << "\tU\t" << s;
+        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t0\t" << s;
 
         ubcount++;
     
 }
+
+static VOID AtUnconOnlyCall(ADDRINT ip, ADDRINT target, BOOL taken)
+{
+
+        string s = disassemble ((ip),(ip)+15);
+
+        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t1\t" << s;
+
+        ubcount++;
+    
+}
+
 
 static VOID Instruction(INS ins, VOID *v)
 {
@@ -222,7 +235,12 @@ static VOID Instruction(INS ins, VOID *v)
     
     if (INS_IsBranchOrCall(ins)){
         if (INS_HasFallThrough(ins) == false) // It is unconditional branch
-            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconConBranch, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+            if (INS_IsCall(ins)){
+                INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconOnlyCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+            }
+            else{
+                INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconConBranchExceptCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+            }
         else
             INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtConBranch, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
     }
@@ -234,16 +252,11 @@ static VOID Instruction(INS ins, VOID *v)
 VOID Fini(INT32 code, VOID *v)
 {
     // Write to a file since cout and cerr maybe closed by the application
-    axuFile.close();
-    std::ifstream readTmpFile(axuliryFileName);
     cout << "Logging data..." << endl;
-    OutFile << "!!! Number of Instructions = " << icount << endl; 
-    OutFile << "!!! Number of Unconditional branches = " << ubcount << endl;
-    OutFile << "!!! Number of Conditional branches = " << cbcount << endl;
-    OutFile << "------------------------------------" << endl;
-    OutFile << readTmpFile.rdbuf();
-    readTmpFile.close();
-    std::remove(axuliryFileName);
+    axuFile << "!!! Number of Instructions = " << icount << endl; 
+    axuFile << "!!! Number of Unconditional branches = " << ubcount << endl;
+    axuFile << "!!! Number of Conditional branches = " << cbcount << endl;
+    axuFile.close();
     OutFile.close();
 }
 

@@ -56,7 +56,6 @@ END_LEGAL */
 #include "instlib.H"
 
 #define axuliryFileName "generalInfo.out"
-
 std::map<ADDRINT, std::string> disAssemblyMap;
 
 
@@ -71,12 +70,55 @@ std::ofstream axuFile(axuliryFileName);
 static UINT64 icount = 0;
 static UINT64 cbcount = 0;
 static UINT64 ubcount = 0;
+static UINT64 howManyBranch = 0;
+static UINT64 howManySet = 0;
+static UINT64 fileCounter = 0;
+static ostringstream filePrefix;
+
+
+KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o", "branches", "specify output file name prefix");
+
+KNOB<string> KnobHowManySet(KNOB_MODE_WRITEONCE, "pintool", "b", "100", "specify how many set should be created");
+
+KNOB<string> KnobHowManyBranch(KNOB_MODE_WRITEONCE, "pintool", "m", "30000000", "specify how many set should be created");
+
+VOID Fini(INT32 code, VOID *v)
+{
+    // Write to a file since cout and cerr maybe closed by the application
+    cout << "Logging data..." << endl;
+    axuFile << "!!! Number of Instructions = " << icount << endl; 
+    axuFile << "!!! Number of Unconditional branches = " << ubcount << endl;
+    axuFile << "!!! Number of Conditional branches = " << cbcount << endl;
+    axuFile.close();
+    OutFile.close();
+}
+
+
+UINT32 file_init(){
+    OutFile.close();
+    filePrefix.str("");
+    filePrefix.clear();
+    filePrefix << KnobOutputFile.Value() << "_" << fileCounter <<  ".out";
+    OutFile.open(filePrefix.str().c_str());
+    OutFile.setf(ios::showbase);
+    return 0;
+}
 
 // This function is called before every instruction is executed
-VOID docount() { icount++; }
+VOID docount() { 
+    if (!(icount % howManyBranch) && icount > 0)
+    {
+        fileCounter++;
+        if (fileCounter > howManySet-1){
+            Fini(0, 0);
+            exit(0);
+        }else{
+            file_init();
+        }
+    }
+    icount++; 
+}
 
-KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool",
-    "o", "branches.out", "specify output file name");
 
 static char nibble_to_ascii_hex(UINT8 i) {
     if (i<10) return i+'0';
@@ -249,16 +291,6 @@ static VOID Instruction(INS ins, VOID *v)
     //    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtNonBranch, IARG_INST_PTR, IARG_END);
 }
 
-VOID Fini(INT32 code, VOID *v)
-{
-    // Write to a file since cout and cerr maybe closed by the application
-    cout << "Logging data..." << endl;
-    axuFile << "!!! Number of Instructions = " << icount << endl; 
-    axuFile << "!!! Number of Unconditional branches = " << ubcount << endl;
-    axuFile << "!!! Number of Conditional branches = " << cbcount << endl;
-    axuFile.close();
-    OutFile.close();
-}
 
 /* ===================================================================== */
 /* Print Help Message                                                    */
@@ -273,9 +305,23 @@ INT32 Usage()
 
 INT32 InitFile()
 {
+    filePrefix.str("");
+    filePrefix.clear();
+    filePrefix << KnobOutputFile.Value() << "_" << fileCounter <<  ".out";
+    OutFile.open(filePrefix.str().c_str());
+    OutFile.setf(ios::showbase);
+    axuFile.setf(ios::showbase);
+    howManyBranch = atoi(KnobHowManyBranch.Value().c_str());
+    howManySet = atoi(KnobHowManySet.Value().c_str());
+
+    /*
+    cout << "---------------------" <<KnobHowManyBranch.Value() << endl;
     OutFile.open(KnobOutputFile.Value().c_str());
     OutFile.setf(ios::showbase);
     axuFile.setf(ios::showbase);
+    howManyBranch = stoi(KnobHowManyBranch.Value().c_str());
+    howManySet = stoi(KnobHowManySet.Value().c_str());
+    */
     return 0;
 }
 

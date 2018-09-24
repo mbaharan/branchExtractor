@@ -76,11 +76,11 @@ static UINT64 fileCounter = 0;
 static ostringstream filePrefix;
 
 
-KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o", "branches", "specify output file name prefix");
+KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o", "branches", "specify output file name prefix.");
 
-KNOB<string> KnobHowManySet(KNOB_MODE_WRITEONCE, "pintool", "b", "100", "specify how many set should be created");
+KNOB<string> KnobHowManySet(KNOB_MODE_WRITEONCE, "pintool", "b", "100", "specify how many set should be created.");
 
-KNOB<string> KnobHowManyBranch(KNOB_MODE_WRITEONCE, "pintool", "m", "30000000", "specify how many set should be created");
+KNOB<string> KnobHowManyBranch(KNOB_MODE_WRITEONCE, "pintool", "m", "30000000", "specify how many instructions should be probed.");
 
 VOID Fini(INT32 code, VOID *v)
 {
@@ -242,7 +242,17 @@ static VOID AtConBranch(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
 
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0\t" << s;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t0\t" << s;
+
+        cbcount++;
+}
+
+static VOID AtConBranchIndirect(ADDRINT ip, ADDRINT target, BOOL taken)
+{
+
+        string s = disassemble ((ip),(ip)+15);
+
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t1\t" << s;
 
         cbcount++;
 }
@@ -252,7 +262,18 @@ static VOID AtUnconConBranchExceptCall(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
 
-        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t0\t" << s;
+        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t0" << "\t0\t" << s;
+
+        ubcount++;
+    
+}
+
+static VOID AtUnconConBranchExceptCallIndirect(ADDRINT ip, ADDRINT target, BOOL taken)
+{
+
+        string s = disassemble ((ip),(ip)+15);
+
+        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t0" << "\t1\t" << s;
 
         ubcount++;
     
@@ -263,7 +284,19 @@ static VOID AtUnconOnlyCall(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
 
-        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t1\t" << s;
+        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t1" << "\t0\t" << s;
+
+        ubcount++;
+    
+}
+
+
+static VOID AtUnconOnlyCallIndirect(ADDRINT ip, ADDRINT target, BOOL taken)
+{
+
+        string s = disassemble ((ip),(ip)+15);
+
+        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t1" << "\t1\t" << s;
 
         ubcount++;
     
@@ -278,13 +311,27 @@ static VOID Instruction(INS ins, VOID *v)
     if (INS_IsBranchOrCall(ins)){
         if (INS_HasFallThrough(ins) == false) // It is unconditional branch
             if (INS_IsCall(ins)){
-                INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconOnlyCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                if(INS_IsDirectBranchOrCall(ins) == true){
+                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconOnlyCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                }else{
+                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconOnlyCallIndirect, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                }
             }
             else{
-                INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconConBranchExceptCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                if(INS_IsDirectBranchOrCall(ins) == true){
+                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconConBranchExceptCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                } else{
+                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconConBranchExceptCallIndirect, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                }
             }
-        else
-            INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtConBranch, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+        else{
+            if(INS_IsDirectBranchOrCall(ins) == true){
+                INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtConBranch, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+            }else{
+                INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtConBranchIndirect, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+            }
+            
+        }
     }
     // We do not care about instrunctions that are not branches.
     //else

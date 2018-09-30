@@ -55,7 +55,7 @@ END_LEGAL */
 #include "pin.H"
 #include "instlib.H"
 
-#define axuliryFileName "generalInfo.out"
+#define axuliryFileName "generalInfo"
 std::map<ADDRINT, std::string> disAssemblyMap;
 
 
@@ -64,49 +64,87 @@ static ADDRINT dl_debug_state_AddrEnd = 0;
 static BOOL justFoundDlDebugState = FALSE;
 
 ofstream OutFile;
-std::ofstream axuFile(axuliryFileName);
+ofstream axuFile;
 // The running count of instructions is kept here
 // make it static to help the compiler optimize docount
 static UINT64 icount = 0;
 static UINT64 cbcount = 0;
 static UINT64 ubcount = 0;
+static UINT64 callcount = 0;
+static UINT64 retcount = 0;
 static UINT64 howManyBranch = 0;
 static UINT64 howManySet = 0;
 static UINT64 fileCounter = 0;
+static UINT64 offset_inst = 0;
+static UINT64 first_inst_count_after_offset = 0;
+static bool first_record = true;
+static bool record = false;
 static ostringstream filePrefix;
 
 
 KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o", "branches", "specify output file name prefix.");
 
-KNOB<string> KnobHowManySet(KNOB_MODE_WRITEONCE, "pintool", "b", "100", "specify how many set should be created.");
+KNOB<string> KnobHowManySet(KNOB_MODE_WRITEONCE, "pintool", "b", "1", "specify how many set should be created.");
 
 KNOB<string> KnobHowManyBranch(KNOB_MODE_WRITEONCE, "pintool", "m", "30000000", "specify how many instructions should be probed.");
+
+KNOB<string> KnobOffset(KNOB_MODE_WRITEONCE, "pintool", "f", "1000000", "Start saving instructions after seeing first `f` instruction.");
+
+VOID write_on_axu(){
+    axuFile << "!!! Number of Instructions = " << (icount - offset_inst - ((fileCounter-1)*howManyBranch) + 1) << endl;
+    axuFile << "!!! Number of Unconditional branches = " << ubcount << endl;
+    axuFile << "!!! Number of Conditional branches = " << cbcount << endl;
+    axuFile << "!!! Number of Call branches = " << callcount << endl;
+    axuFile << "!!! Number of Ret branches = " << retcount << endl;
+
+    axuFile.close();
+
+}
 
 VOID Fini(INT32 code, VOID *v)
 {
     // Write to a file since cout and cerr maybe closed by the application
     cout << "Logging data..." << endl;
-    axuFile << "!!! Number of Instructions = " << icount << endl; 
-    axuFile << "!!! Number of Unconditional branches = " << ubcount << endl;
-    axuFile << "!!! Number of Conditional branches = " << cbcount << endl;
-    axuFile.close();
+    write_on_axu();
     OutFile.close();
 }
 
+VOID reset_var(){
+    cbcount = 0;
+    ubcount = 0;
+    callcount = 0;
+    retcount = 0;
+    first_inst_count_after_offset = 0;
+}
 
 UINT32 file_init(){
+    cout << "Writing " << fileCounter-1 << endl;
+
+    write_on_axu();
+    
     OutFile.close();
     filePrefix.str("");
     filePrefix.clear();
     filePrefix << KnobOutputFile.Value() << "_" << fileCounter <<  ".out";
     OutFile.open(filePrefix.str().c_str());
     OutFile.setf(ios::showbase);
+
+    filePrefix.str("");
+    filePrefix.clear();
+    filePrefix << axuliryFileName << "_" << fileCounter <<  ".out";
+    axuFile.open(filePrefix.str().c_str());
+    axuFile.setf(ios::showbase);
+
+    reset_var();
+
     return 0;
 }
 
+
 // This function is called before every instruction is executed
 VOID docount() { 
-    if (!(icount % howManyBranch) && icount > 0)
+    //cerr<< "I:" << icount << "V:" << (howManyBranch+ offset_inst - 1) << (!((icount) % (howManyBranch+ offset_inst - 1))? "Tr":"Fa") << endl;
+    if (!((icount) % ((howManyBranch*(fileCounter+1)) + offset_inst - 1)) && icount > 0)
     {
         fileCounter++;
         if (fileCounter > howManySet-1){
@@ -117,6 +155,12 @@ VOID docount() {
         }
     }
     icount++; 
+    if (icount >= offset_inst && fileCounter==0){
+        first_inst_count_after_offset++; //Although here is going to be incerased by one, it will be set to 1 whenever it reaches to fist branch;
+        record = true;
+    }else if(fileCounter>0){
+        first_inst_count_after_offset++;
+    }
 }
 
 
@@ -237,102 +281,213 @@ VOID ImageLoad(IMG img, VOID *v)
     }
 }
 
-static VOID AtConBranch(ADDRINT ip, ADDRINT target, BOOL taken)
-{
+/************
+ * 
+ * JMP segment
+ * 
+ */ 
+
+static VOID UnconDirectJMP(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
 
         string s = disassemble ((ip),(ip)+15);
+                                                        //T                    Unc      Call    NotRet     Direct
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
 
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t0\t" << s;
+        ubcount++;
+        
+    
+}
 
+static VOID UnconUnDirectJMP(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
+
+        string s = disassemble ((ip),(ip)+15);
+                                                        //T                    Unc      Call    NotRet     UnDirect
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
+        ubcount++;
+    
+}
+
+static VOID ConDirectJMP(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
+
+        string s = disassemble ((ip),(ip)+15);
+                                                        //T                    C      Call    NotRet     Direct
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
         cbcount++;
+    
 }
-
-static VOID AtConBranchIndirect(ADDRINT ip, ADDRINT target, BOOL taken)
-{
+static VOID ConUnDirectJMP(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
 
         string s = disassemble ((ip),(ip)+15);
-
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t1\t" << s;
-
+                                                        //T                    C        Call     NotRet     UNDirect
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
         cbcount++;
+    
 }
+//****************************************************************
 
-static VOID AtUnconConBranchExceptCall(ADDRINT ip, ADDRINT target, BOOL taken)
-{
+/************
+ * 
+ * Ret segment
+ * 
+ */ 
+
+static VOID UnconDirectRet(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
 
         string s = disassemble ((ip),(ip)+15);
-
-        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t0" << "\t0\t" << s;
-
+                                                        //T                    Unc      Call    NotRet     Direct
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t1" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
         ubcount++;
+        retcount++;
     
 }
 
-static VOID AtUnconConBranchExceptCallIndirect(ADDRINT ip, ADDRINT target, BOOL taken)
-{
+static VOID UnconUnDirectRet(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
 
         string s = disassemble ((ip),(ip)+15);
-
-        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t0" << "\t1\t" << s;
-
+                                                        //T                    Unc      Call    NotRet     UnDirect
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t1" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
         ubcount++;
+        retcount++;
     
 }
 
-static VOID AtUnconOnlyCall(ADDRINT ip, ADDRINT target, BOOL taken)
-{
+static VOID ConDirectRet(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
 
         string s = disassemble ((ip),(ip)+15);
+                                                        //T                    C      Call    NotRet     Direct
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t1" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
+        cbcount++;
+        retcount++;
+    
+}
+static VOID ConUnDirectRet(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
 
-        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t1" << "\t0\t" << s;
+        string s = disassemble ((ip),(ip)+15);
+                                                        //T                    C        Call     NotRet     UNDirect
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t1" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
+        cbcount++;
+        retcount++;
+    
+}
+//****************************************************************
 
+
+
+/************
+ * 
+ * Call segment
+ * 
+ */ 
+
+static VOID UnconDirectCall(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
+
+        string s = disassemble ((ip),(ip)+15);
+                                                        //T                    Unc      Call    NotRet     Direct
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t1" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
         ubcount++;
+        callcount++;
     
 }
 
-
-static VOID AtUnconOnlyCallIndirect(ADDRINT ip, ADDRINT target, BOOL taken)
-{
+static VOID UnconUnDirectCall(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
 
         string s = disassemble ((ip),(ip)+15);
-
-        OutFile <<  reinterpret_cast<void *>(target) << "\t1" << "\t0" << "\t1" << "\t1\t" << s;
-
+                                                        //T                    Unc      Call    NotRet     UnDirect
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t1" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
         ubcount++;
+        callcount++;
     
 }
+
+static VOID ConDirectCall(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
+
+        string s = disassemble ((ip),(ip)+15);
+                                                        //T                    C      Call    NotRet     Direct
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t1" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
+        cbcount++;
+        callcount++;
+    
+}
+static VOID ConUnDirectCall(ADDRINT ip, ADDRINT target, BOOL taken)
+{//(T-N), (Con-Uncon), (Call-NotCall), (Ret-NotRet), (Direct-NotDirect)
+
+        string s = disassemble ((ip),(ip)+15);
+                                                        //T                    C        Call     NotRet     UNDirect
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t1" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
+        cbcount++;
+        callcount++;
+    
+}
+//****************************************************************
 
 
 static VOID Instruction(INS ins, VOID *v)
 {
     // Insert a call to docount before every instruction, no arguments are passed
     INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)docount, IARG_END);
-    
-    if (INS_IsBranchOrCall(ins)){
-        if (INS_HasFallThrough(ins) == false) // It is unconditional branch
-            if (INS_IsCall(ins)){
-                if(INS_IsDirectBranchOrCall(ins) == true){
-                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconOnlyCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
-                }else{
-                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconOnlyCallIndirect, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+
+    if(record){
+        if (INS_IsBranchOrCall(ins)){
+            if(first_record){ //Detected the first branch
+                first_inst_count_after_offset = 1;
+                first_record = false;
+            }
+            if (INS_HasFallThrough(ins) == false){ // It is unconditional branch
+                if (INS_IsCall(ins)){ // It is call
+                    if(INS_IsDirectBranchOrCall(ins) == true){ //direct
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)UnconDirectCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    }else{
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)UnconUnDirectCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    }
+                }
+                else if(INS_IsRet(ins)){ // It is RET
+                    if(INS_IsDirectBranchOrCall(ins) == true){
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)UnconDirectRet, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    } else{
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)UnconUnDirectRet, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    }
+                }else{ // It is JMP 
+                    if(INS_IsDirectBranchOrCall(ins) == true){
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)UnconDirectJMP, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    } else{
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)UnconUnDirectJMP, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    }
+                }
+            } else {// It is conditional branch
+                if (INS_IsCall(ins)){ // It is call
+                    if(INS_IsDirectBranchOrCall(ins) == true){ //direct
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)ConDirectCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    }else{
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)ConUnDirectCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    }
+                }
+                else if(INS_IsRet(ins)){ // It is RET
+                    if(INS_IsDirectBranchOrCall(ins) == true){
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)ConDirectRet, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    } else{
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)ConUnDirectRet, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    }
+                }else{ // It is JMP 
+                    if(INS_IsDirectBranchOrCall(ins) == true){
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)ConDirectJMP, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    } else{
+                        INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)ConUnDirectJMP, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
+                    }
                 }
             }
-            else{
-                if(INS_IsDirectBranchOrCall(ins) == true){
-                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconConBranchExceptCall, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
-                } else{
-                    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtUnconConBranchExceptCallIndirect, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
-                }
-            }
-        else{
-            if(INS_IsDirectBranchOrCall(ins) == true){
-                INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtConBranch, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
-            }else{
-                INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtConBranchIndirect, IARG_INST_PTR, IARG_BRANCH_TARGET_ADDR, IARG_BRANCH_TAKEN, IARG_END);
-            }
-            
         }
-    }
+    }    
     // We do not care about instrunctions that are not branches.
     //else
     //    INS_InsertCall(ins, IPOINT_BEFORE, (AFUNPTR)AtNonBranch, IARG_INST_PTR, IARG_END);
@@ -357,9 +512,16 @@ INT32 InitFile()
     filePrefix << KnobOutputFile.Value() << "_" << fileCounter <<  ".out";
     OutFile.open(filePrefix.str().c_str());
     OutFile.setf(ios::showbase);
+
+    filePrefix.str("");
+    filePrefix.clear();
+    filePrefix << axuliryFileName << "_" << fileCounter <<  ".out";
+    axuFile.open(filePrefix.str().c_str());
     axuFile.setf(ios::showbase);
+
     howManyBranch = atoi(KnobHowManyBranch.Value().c_str());
     howManySet = atoi(KnobHowManySet.Value().c_str());
+    offset_inst = atoi(KnobOffset.Value().c_str());
 
     /*
     cout << "---------------------" <<KnobHowManyBranch.Value() << endl;

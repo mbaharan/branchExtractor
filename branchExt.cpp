@@ -82,13 +82,13 @@ static bool record = false;
 static ostringstream filePrefix;
 
 
-KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o", "branches", "specify output file name prefix.");
+KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o", "branches", "specifies the output file name prefix.");
 
-KNOB<string> KnobHowManySet(KNOB_MODE_WRITEONCE, "pintool", "b", "1", "specify how many set should be created.");
+KNOB<string> KnobHowManySet(KNOB_MODE_WRITEONCE, "pintool", "b", "1", "Specifies how many set should be created.");
 
-KNOB<string> KnobHowManyBranch(KNOB_MODE_WRITEONCE, "pintool", "m", "30000000", "specify how many instructions should be probed.");
+KNOB<string> KnobHowManyBranch(KNOB_MODE_WRITEONCE, "pintool", "m", "30000000", "Specifies how many instructions should be probed.");
 
-KNOB<string> KnobOffset(KNOB_MODE_WRITEONCE, "pintool", "f", "1000000", "Start saving instructions after seeing first `f` instruction.");
+KNOB<string> KnobOffset(KNOB_MODE_WRITEONCE, "pintool", "f", "1000000", "Starts saving instructions after seeing the first `f` instruction.");
 
 VOID write_on_axu(){
     axuFile << "!!! Number of Instructions = " << (icount - offset_inst - ((fileCounter-1)*howManyBranch) + 1) << endl;
@@ -292,7 +292,7 @@ static VOID UnconDirectJMP(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    Unc      Call    NotRet     Direct
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
 
         ubcount++;
         
@@ -304,7 +304,7 @@ static VOID UnconUnDirectJMP(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    Unc      Call    NotRet     UnDirect
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         ubcount++;
     
 }
@@ -314,7 +314,7 @@ static VOID ConDirectJMP(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    C      Call    NotRet     Direct
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         cbcount++;
     
 }
@@ -323,7 +323,7 @@ static VOID ConUnDirectJMP(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    C        Call     NotRet     UNDirect
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         cbcount++;
     
 }
@@ -340,7 +340,7 @@ static VOID UnconDirectRet(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    Unc      Call    NotRet     Direct
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t1" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t1" << "\t1"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         ubcount++;
         retcount++;
     
@@ -351,7 +351,7 @@ static VOID UnconUnDirectRet(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    Unc      Call    NotRet     UnDirect
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t1" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t0" << "\t1" << "\t0"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         ubcount++;
         retcount++;
     
@@ -362,7 +362,7 @@ static VOID ConDirectRet(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    C      Call    NotRet     Direct
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t1" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t1" << "\t1"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         cbcount++;
         retcount++;
     
@@ -372,7 +372,7 @@ static VOID ConUnDirectRet(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    C        Call     NotRet     UNDirect
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t1" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t0" << "\t1" << "\t0"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         cbcount++;
         retcount++;
     
@@ -392,7 +392,7 @@ static VOID UnconDirectCall(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    Unc      Call    NotRet     Direct
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t1" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t1" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         ubcount++;
         callcount++;
     
@@ -403,7 +403,7 @@ static VOID UnconUnDirectCall(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    Unc      Call    NotRet     UnDirect
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t1" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t0" << "\t1" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         ubcount++;
         callcount++;
     
@@ -414,7 +414,7 @@ static VOID ConDirectCall(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    C      Call    NotRet     Direct
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t1" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t1" << "\t0" << "\t1"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         cbcount++;
         callcount++;
     
@@ -424,7 +424,7 @@ static VOID ConUnDirectCall(ADDRINT ip, ADDRINT target, BOOL taken)
 
         string s = disassemble ((ip),(ip)+15);
                                                         //T                    C        Call     NotRet     UNDirect
-        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t1" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << s << flush;
+        OutFile <<  reinterpret_cast<void *>(target) << (taken?"\t1":"\t0") << "\t1" << "\t1" << "\t0" << "\t0"<< "\t" <<first_inst_count_after_offset << "\t" << s << flush;
         cbcount++;
         callcount++;
     

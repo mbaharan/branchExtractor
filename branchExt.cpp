@@ -72,7 +72,7 @@ static UINT64 cbcount = 0;
 static UINT64 ubcount = 0;
 static UINT64 callcount = 0;
 static UINT64 retcount = 0;
-static UINT64 howManyBranch = 0;
+static int64_t howManyBranch = 0;
 static UINT64 howManySet = 0;
 static UINT64 fileCounter = 0;
 static UINT64 offset_inst = 0;
@@ -86,7 +86,7 @@ KNOB<string> KnobOutputFile(KNOB_MODE_WRITEONCE, "pintool", "o", "branches", "sp
 
 KNOB<string> KnobHowManySet(KNOB_MODE_WRITEONCE, "pintool", "b", "1", "Specifies how many set should be created.");
 
-KNOB<string> KnobHowManyBranch(KNOB_MODE_WRITEONCE, "pintool", "m", "30000000", "Specifies how many instructions should be probed.");
+KNOB<string> KnobHowManyBranch(KNOB_MODE_WRITEONCE, "pintool", "m", "-1", "Specifies how many instructions should be probed. -1 for probing whole program.");
 
 KNOB<string> KnobOffset(KNOB_MODE_WRITEONCE, "pintool", "f", "1000000", "Starts saving instructions after seeing the first `f` instruction.");
 
@@ -144,16 +144,20 @@ UINT32 file_init(){
 // This function is called before every instruction is executed
 VOID docount() { 
     //cerr<< "I:" << icount << "V:" << (howManyBranch+ offset_inst - 1) << (!((icount) % (howManyBranch+ offset_inst - 1))? "Tr":"Fa") << endl;
-    if (!((icount) % ((howManyBranch*(fileCounter+1)) + offset_inst - 1)) && icount > 0)
-    {
-        fileCounter++;
-        if (fileCounter > howManySet-1){
-            Fini(0, 0);
-            exit(0);
-        }else{
-            file_init();
+    if(howManyBranch > 0){
+        if (!((icount) % ((howManyBranch*(fileCounter+1)) + offset_inst - 1)) && icount > 0)
+        {
+            fileCounter++;
+            if (fileCounter > howManySet-1){
+                cout << "Exiting because of user conditions"<<endl;
+                Fini(0, 0);
+                exit(0);
+            }else{
+                file_init();
+            }
         }
     }
+
     icount++; 
     if (icount >= offset_inst && fileCounter==0){
         first_inst_count_after_offset++; //Although here is going to be incerased by one, it will be set to 1 whenever it reaches to fist branch;
